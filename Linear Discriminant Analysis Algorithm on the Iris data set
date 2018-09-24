@@ -1,0 +1,110 @@
+var shuffleAndValidateFiles = function(files) {
+	var F = new Array();
+	while (files.length > 0) {
+		var N = Math.floor(Math.random()*files.length);
+
+		if ((files[N] instanceof File) && !files[N].hidden) {
+			F.push(files[N]);
+		}
+
+		files.splice(N,1);
+	}
+	return F;
+}
+
+preferences.rulerUnits = Units.PIXELS;
+var SEARCH_MASK = "*.jpg";
+var PROMPT_TEXT = "Select a folder";
+
+try {
+	var folder = Folder.selectDialog(PROMPT_TEXT);
+	if (folder == null) {
+		throw "noInput";
+	}
+	var files = folder.getFiles(SEARCH_MASK);
+
+	files = shuffleAndValidateFiles(files);
+} catch (exception) {
+	alert(exception);
+}
+
+//Output settings: how many images to output, and the size of each item on the grid in pixels
+var total = files.length;
+var gridCols = prompt("How many columns would you like your grid to be?", "4");
+var gridRows = Math.max(Math.floor(total / gridCols), 1);
+var sqWidth = parseInt(prompt("How wide would you like each image to be?", "300"), 10);
+var sqHeight = parseInt(prompt("How tall would you like each image to be?", "300"), 10);
+
+if (confirm(
+	"About to create a "+gridRows+" * "+gridCols+
+	" grid that is "+(gridRows*sqWidth)+"px * "+(gridCols*sqHeight)+"px large. "+
+	"There'll be a total of "+total+" images. Is that ok?")) {
+
+	var doc = app.documents.add(sqWidth*gridCols+"px", sqHeight*gridRows+"px", 300, "Generated Grid");
+
+	var cropCurrentToFit = function(newWidth, newHeight) {
+		var docRef = app.activeDocument;
+		var w = parseInt(docRef.width, 10);
+		var h = parseInt(docRef.height, 10);
+		var portrait = h > w;
+
+		var scale = Math.min(w/newWidth, h/newHeight);
+
+		var x1, x2, xo, y1, y2, yo;
+		x1 = x2 = w*0.5;
+		xo = scale*newWidth;
+		x1 += xo*0.5; x2 -= xo*0.5;
+
+		y1 = y2 = h*0.5;
+		yo = scale*newHeight;
+		y1 += yo*0.5; y2 -= yo*0.5;
+
+		var bounds = [x2, y2, x1, y1];
+		docRef.crop(bounds, null, newWidth, newHeight);
+		return docRef;
+	}
+
+	var row = function(y) {
+		for (var x = 0; x < gridCols; x++) {
+			var i = (y*gridCols + x) % files.length;
+			open(files[i]);
+
+			var currentDoc = cropCurrentToFit(sqWidth, sqHeight);
+			currentDoc.selection.selectAll();
+			currentDoc.selection.copy();
+			currentDoc.close(SaveOptions.DONOTSAVECHANGES);
+
+			app.activeDocument = doc;
+			var xpixel = sqWidth * x;
+			var ypixel = sqHeight * y;
+
+
+			doc.selection.select([
+				[ xpixel, ypixel ], //TOP LEFT
+				[ xpixel + sqWidth, ypixel ], //TOP RIGHT
+				[ xpixel + sqWidth, ypixel + sqHeight ], //BOTTOM RIGHT
+				[ xpixel, ypixel + sqHeight ] //BOTTOM LEFT
+			]);
+			doc.paste(true);
+			doc.selection.deselect();
+
+			if (i % 10 == 9) { doc.flatten(); }
+		}
+	}
+
+	var grid = function() {
+		for (var y = 0; y < gridRows || y < 1; y++) {
+			doc.suspendHistory('Alert', "row("+y+")");
+		}
+		doc.flatten();
+	}
+
+	doc.suspendHistory("Grid Generation", "grid();");
+}
+
+/*
+	doc.suspendHistory() is used to lower memory usage.
+	Storing every change to the image can get tiresome for all but the best computers,
+	so instead this script "forgets" past actions after completing each row. The whole
+	process is merged into one action at the end of the script.
+*/
